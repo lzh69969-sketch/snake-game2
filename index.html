@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>贪吃蛇 — 手机多人版</title>
+<style>
+body{margin:0;font-family:system-ui;background:#051017;color:#e6eef8}
+.wrap{max-width:980px;margin:20px auto;padding:12px;background:rgba(255,255,255,0.03);border-radius:12px}
+canvas{width:100%;height:auto;border-radius:10px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.06))}
+button,select{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.04);color:inherit;padding:6px;border-radius:6px;cursor:pointer}
+.controls{display:flex;gap:8px;align-items:center;margin-top:10px}
+ol{color:#9fb0bf;padding-left:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="game" width="400" height="400"></canvas>
+  <div class="controls">
+    <button id="startBtn">开始</button>
+    <button id="pauseBtn">暂停</button>
+    <button id="restartBtn">重置</button>
+    <label style="margin-left:auto">速度
+      <select id="speed">
+        <option value="160">慢</option>
+        <option value="110" selected>中等</option>
+        <option value="70">快</option>
+        <option value="45">极速</option>
+      </select>
+    </label>
+  </div>
+  <h3>排行榜（本地）</h3>
+  <ol id="leaderboard"></ol>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const GRID=20;
+const COLS=Math.floor(canvas.width/GRID);
+const ROWS=Math.floor(canvas.height/GRID);
+let snake=[{x:Math.floor(COLS/2),y:Math.floor(ROWS/2)}];
+let dir={x:0,y:0},nextDir={x:0,y:0};
+let food=null,score=0,accumulator=0,stepMS=110,running=false,lastTime=0;
+
+const scoreEl=document.createElement('div');
+const leaderboardEl=document.getElementById('leaderboard');
+const speedSelect=document.getElementById('speed');
+
+function randPos(){return {x:Math.floor(Math.random()*COLS),y:Math.floor(Math.random()*ROWS)};}
+function placeFood(){let p;let tries=0;do{p=randPos();tries++;if(tries>500)break;}while(snake.some(s=>s.x===p.x&&s.y===p.y));food=p;food._spawn=performance.now();}
+function resetGame(){snake=[{x:Math.floor(COLS/2),y:Math.floor(ROWS/2)}];dir={x:0,y:0};nextDir={x:0,y:0};score=0;accumulator=0;running=false;placeFood();drawLeaderboard();}
+
+function step(){
+  if(!(nextDir.x===-dir.x&&nextDir.y===-dir.y)&&!(nextDir.x===0&&nextDir.y===0))dir={...nextDir};
+  if(dir.x===0&&dir.y===0)return true;
+  const head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+  if(head.x<0||head.x>=COLS||head.y<0||head.y>=ROWS)return endGame();
+  if(snake.some(s=>s.x===head.x&&s.y===head.y))return endGame();
+  snake.unshift(head);
+  if(food&&head.x===food.x&&head.y===food.y){score+=10;placeFood();}else snake.pop();
+  return true;
+}
+
+function draw(){
+  ctx.fillStyle='rgba(3,8,12,0.6)';ctx.fillRect(0,0,canvas.width,canvas.height);
+  if(food){const t=(performance.now()-(food._spawn||0))/500;const pulse=1+Math.sin(t*2*Math.PI)*0.14;const cx=food.x*GRID+GRID/2,cy=food.y*GRID+GRID/2,r=GRID*0.45*pulse;ctx.beginPath();ctx.fillStyle='#ff6b6b';ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();}
+  for(let i=snake.length-1;i>=0;i--){const p=snake[i];const cx=p.x*GRID+GRID/2,cy=p.y*GRID+GRID/2,bead=i===0?GRID*0.52:GRID*0.42;ctx.beginPath();ctx.fillStyle=i===0?'#40f08a':'#7b61ff';ctx.arc(cx,cy,bead,0,Math.PI*2);ctx.fill();}
+}
+
+function endGame(){running=false;saveScore(score);return false;}
+function loop(now){if(!lastTime)lastTime=now;const delta=now-lastTime;lastTime=now;accumulator+=delta;while(accumulator>=stepMS){step();accumulator-=stepMS;}draw();if(running)requestAnimationFrame(loop);}
+function startGame(){if(running)return;running=true;lastTime=0;accumulator=0;requestAnimationFrame(loop);}
+function stopGame(){running=false;}
+
+document.getElementById('startBtn').addEventListener('click',()=>startGame());
+document.getElementById('pauseBtn').addEventListener('click',()=>stopGame());
+document.getElementById('restartBtn').addEventListener('click',()=>{resetGame();startGame();});
+speedSelect.addEventListener('change',()=>{stepMS=parseInt(speedSelect.value,10);});
+
+window.addEventListener('keydown',e=>{const m={ArrowUp:{x:0,y:-1},ArrowDown:{x:0,y:1},ArrowLeft:{x:-1,y:0},ArrowRight:{x:1,y:0},w:{x:0,y:-1},s:{x:0,y:1},a:{x:-1,y:0},d:{x:1,y:0}}[e.key];if(m){nextDir=m;if(!running)startGame();e.preventDefault();}});
+
+function saveScore(s){
+  let list=JSON.parse(localStorage.getItem('snake_leaderboard')||'[]');
+  list.push({score:s,date:new Date().toISOString()});
+  list.sort((a,b)=>b.score-a.score);list=list.slice(0,10);
+  localStorage.setItem('snake_leaderboard',JSON.stringify(list));
+  drawLeaderboard();
+}
+
+function drawLeaderboard(){
+  let list=JSON.parse(localStorage.getItem('snake_leaderboard')||'[]');
+  leaderboardEl.innerHTML='';
+  if(list.length===0){leaderboardEl.innerHTML='<li>暂无记录</li>';return;}
+  list.forEach((it,i)=>{const li=document.createElement('li');li.textContent=`${i+1}. ${it.score} 分 (${new Date(it.date).toLocaleDateString()})`;leaderboardEl.appendChild(li);});
+}
+
+resetGame();
+</script>
+</body>
+</html>
